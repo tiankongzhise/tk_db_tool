@@ -4,6 +4,7 @@ from .message import message
 from .datebase import init_db
 from .datebase import engine
 from sqlalchemy import Engine,Insert
+from pydantic import BaseModel
 
 class BaseCurd(object):
     def __init__(self,db_engine:Engine = engine):
@@ -31,7 +32,36 @@ class BaseCurd(object):
             return Insert(table).values(chunk).prefix_with("OR IGNORE")
         else:  
             raise NotImplementedError(f"不支持的数据库类型: {self.engine.dialect.name}")
-    
+    def trans_objects_to_dict(self,objects:list[dict|Type[SqlAlChemyBase]|Type[BaseModel]]) -> list[dict]:
+        """
+        处理冲突对象
+        
+        :param model: SQLAlchemy 表模型类
+        :param objects: 待处理的对象列表
+        :return: 处理后的对象列表
+        """
+        if isinstance(objects[0],dict):
+            return objects
+        elif hasattr(objects[0],'__table__'):
+            if hasattr(objects[0], 'to_dict'):
+                return [obj.to_dict() for obj in objects]
+            elif hasattr(objects[0], 'special_fields'):
+                return  [{
+                        c.name: getattr(obj, c.name)
+                        for c in obj.__table__.columns if c.name not in obj.special_fields
+                    } for obj in objects]
+            else:
+                return [
+                    {
+                        c.name: getattr(obj, c.name)
+                        for c in obj.__table__.columns
+                    } for obj in objects
+                ]
+        elif isinstance(objects[0],BaseModel):
+            return [obj.model_dump() for obj in objects]
+        else:
+            raise TypeError("对象类型错误，请传入字典或模型实例")
+
     def bulk_insert_ignore_in_chunks(self,table:Type[SqlAlChemyBase], objects:Iterable, chunk_size=3000):
         """
         分块批量插入数据，支持 INSERT IGNORE
@@ -59,9 +89,7 @@ class BaseCurd(object):
                     # 获取当前批次的数据
                     chunk = objects[i:i + chunk_size]
                     
-                    # 如果元素是模型实例，转换为字典
-                    if hasattr(chunk[0], '__table__'):
-                        chunk = [obj.to_dict() for obj in chunk]
+                    chunk = self.trans_objects_to_dict(chunk)
                     
                     # 构建并执行 INSERT IGNORE 语句
                     stmt = self.get_insert_ignore_stmt(table, chunk)
