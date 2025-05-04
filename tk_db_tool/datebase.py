@@ -5,8 +5,10 @@ from dotenv import load_dotenv
 from contextlib import contextmanager
 from typing import Generator, Type
 from .models import SqlAlChemyBase
-import os
 from .message import message
+
+import os
+import traceback
 
 # 加载环境变量
 load_dotenv()
@@ -83,7 +85,9 @@ def get_session(auto_commit: bool = True) -> Generator[Session, None, None]:
             session.commit()
     except Exception as e:
         session.rollback()
-        message.error(f"数据库操作出错: {str(e)}，已回滚事务")
+        # 获取完整的错误堆栈信息
+        error_detail = traceback.format_exc()
+        message.error(f"数据库操作出错: {str(e)}\n完整错误信息:\n{error_detail}，已回滚事务")
         raise  # 重新抛出异常以便调用方处理
     finally:
         session.close()
